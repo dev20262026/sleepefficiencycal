@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>間時提取訓練工具</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 16px;
+      line-height: 1.6;
+      background: #f8fafc;
+    }
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 0.5rem;
+    }
+    h2 {
+      font-size: 1.2rem;
+      margin-top: 1.5rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 8px;
+      box-sizing: border-box;
+      border-radius: 4px;
+      border: 1px solid #cbd5e1;
+      resize: vertical;
+      font-size: 14px;
+    }
+    .controls {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    input[type="number"] {
+      width: 80px;
+      padding: 4px;
+      border-radius: 4px;
+      border: 1px solid #cbd5e1;
+    }
+    button {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+      font-size: 14px;
+    }
+    button.secondary {
+      background: #6b7280;
+    }
+    button.danger {
+      background: #dc2626;
+    }
+    button:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+    .section {
+      background: white;
+      padding: 12px 16px;
+      margin-top: 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .label {
+      font-weight: 600;
+    }
+    .timer {
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin-top: 4px;
+    }
+    .status {
+      margin-top: 4px;
+      font-size: 0.9rem;
+      color: #64748b;
+    }
+    .hidden {
+      display: none;
+    }
+    .feedback-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      background: #e5e7eb;
+      color: #374151;
+    }
+    .pill.success {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .pill.fail {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+  </style>
+</head>
+<body>
+  <h1>間時提取訓練工具</h1>
+  <p style="font-size:0.9rem;color:#6b7280;">
+    流程：輸入要記的內容 → 設定初始間隔 → 開始 → 計時結束後先自己回想 → 再按「顯示內容」確認 → 回饋成功或失敗 → 自動排程下一次。
+  </p>
+
+  <!-- 輸入與設定區 -->
+  <div class="section">
+    <h2>1. 輸入要記的內容</h2>
+    <textarea id="contentInput" placeholder="在這裡輸入你想記住的內容，例如單字、公式、概念、重點摘要..."></textarea>
+
+    <div class="controls">
+      <span class="label">初始間隔：</span>
+      <input id="initialMinutes" type="number" min="1" value="5" /> 分鐘
+      <button id="saveContentBtn">儲存 / 更新內容</button>
+    </div>
+    <div class="status" id="saveStatus"></div>
+  </div>
+
+  <!-- 計時與回想區 -->
+  <div class="section">
+    <h2>2. 間時提取練習</h2>
+    <div>
+      <div class="label">現在狀態：</div>
+      <div id="statusText" class="status">尚未開始，請先儲存內容並按「開始計時」。</div>
+
+      <div class="timer" id="timerDisplay">--:--</div>
+      <div class="status" id="nextTimeInfo"></div>
+    </div>
+
+    <div class="controls">
+      <button id="startTimerBtn">開始計時</button>
+      <button id="stopTimerBtn" class="secondary" disabled>停止計時</button>
+    </div>
+
+    <div id="recallPrompt" class="hidden" style="margin-top:12px;">
+      <div class="label">計時結束！</div>
+      <p style="margin:4px 0;">請先閉上畫面，在腦中 <strong>自己回想</strong> 剛才輸入的內容。回想完再按下面的按鈕：</p>
+      <button id="showContentBtn" class="secondary">顯示內容，檢查回想結果</button>
+    </div>
+
+    <div id="contentReview" class="hidden" style="margin-top:12px;">
+      <div class="label">原始內容：</div>
+      <div id="contentDisplay" style="white-space:pre-wrap;border:1px solid #e5e7eb;border-radius:4px;padding:8px;margin-top:4px;background:#f9fafb;"></div>
+
+      <div class="feedback-buttons">
+        <button id="successBtn" style="background:#16a34a;">成功記起</button>
+        <button id="failBtn" class="danger">沒有或大部分沒記起</button>
+      </div>
+      <div class="status" id="feedbackHint">
+        成功：拉長下次間隔 / 失敗：縮短間隔再練一次。
+      </div>
+    </div>
+  </div>
+
+  <!-- 歷史與排程資訊 -->
+  <div class="section">
+    <h2>3. 訓練紀錄（單一項目）</h2>
+    <div id="historyInfo" class="status">
+      尚無紀錄。
+    </div>
+  </div>
+
+  <script>
+    // --- 簡單的排程邏輯 ---
+    // 我們用一個「等級 level」代表熟悉程度：
+    //   level 1: 5 分
+    //   level 2: 15 分
+    //   level 3: 60 分 (1 小時)
+    //   level 4: 4 小時
+    //   level 5: 1 天
+    //   level 6: 3 天
+    //   level 7: 7 天
+    //
+    // 成功：level + 1（有上限）
+    // 失敗：level - 1（至少回到 1）
+    const INTERVALS_MINUTES = [0, 5, 15, 60, 240, 1440, 4320, 10080]; // index = level
+
+    const STORAGE_KEY = "spaced_recall_item";
+
+    const contentInput = document.getElementById("contentInput");
+    const initialMinutesInput = document.getElementById("initialMinutes");
+    const saveContentBtn = document.getElementById("saveContentBtn");
+    const saveStatus = document.getElementById("saveStatus");
+
+    const startTimerBtn = document.getElementById("startTimerBtn");
+    const stopTimerBtn = document.getElementById("stopTimerBtn");
+    const timerDisplay = document.getElementById("timerDisplay");
+    const statusText = document.getElementById("statusText");
+    const nextTimeInfo = document.getElementById("nextTimeInfo");
+
+    const recallPrompt = document.getElementById("recallPrompt");
+    const showContentBtn = document.getElementById("showContentBtn");
+    const contentReview = document.getElementById("contentReview");
+    const contentDisplay = document.getElementById("contentDisplay");
+    const successBtn = document.getElementById("successBtn");
+    const failBtn = document.getElementById("failBtn");
+
+    const historyInfo = document.getElementById("historyInfo");
+
+    let currentTimerId = null;
+    let currentItem = null; // { content, level, nextTime, lastResult, lastReviewedAt }
+
+    function loadItem() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function saveItem(item) {
+      currentItem = item;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(item));
+      updateUIFromItem();
+    }
+
+    function formatDateTime(ts) {
+      if (!ts) return "--";
+      const d = new Date(ts);
+      return d.toLocaleString();
+    }
+
+    function formatDuration(ms) {
+      if (ms <= 0) return "0 秒";
+      const totalSeconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      if (minutes <= 0) return seconds + " 秒";
+      return minutes + " 分 " + seconds + " 秒";
+    }
+
+    function updateTimerDisplay(remainingMs) {
+      if (remainingMs <= 0) {
+        timerDisplay.textContent = "00:00";
+        return;
+      }
+      const totalSeconds = Math.floor(remainingMs / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      timerDisplay.textContent =
+        String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    }
+
+    function clearTimer() {
+      if (currentTimerId) {
+        clearInterval(currentTimerId);
+        currentTimerId = null;
+      }
+    }
+
+    function startCountdownUntil(nextTime) {
+      clearTimer();
+      const update = () => {
+        const now = Date.now();
+        const remaining = nextTime - now;
+        if (remaining <= 0) {
+          clearTimer();
+          updateTimerDisplay(0);
+          statusText.textContent = "到了回想時間！請先在腦中回想內容。";
+          recallPrompt.classList.remove("hidden");
+          startTimerBtn.disabled = true;
+          stopTimerBtn.disabled = true;
+        } else {
+          updateTimerDisplay(remaining);
+        }
+      };
+      update();
+      currentTimerId = setInterval(update, 1000);
+    }
+
+    function updateHistoryInfo(item) {
+      if (!item) {
+        historyInfo.textContent = "尚無紀錄。";
+        return;
+      }
+      const lastResult =
+        item.lastResult === "success"
+          ? '<span class="pill success">上次：成功記起</span>'
+          : item.lastResult === "fail"
+          ? '<span class="pill fail">上次：沒記起</span>'
+          : "尚未回饋";
+
+      historyInfo.innerHTML = `
+        <div>目前熟悉等級：<strong>${item.level}</strong></div>
+        <div>上次練習時間：${formatDateTime(item.lastReviewedAt)}</div>
+        <div>下次提醒時間：${formatDateTime(item.nextTime)}</div>
+        <div style="margin-top:4px;">${lastResult}</div>
+      `;
+    }
+
+    function updateUIFromItem() {
+      const item = currentItem;
+      if (!item) {
+        statusText.textContent =
+          "尚未開始，請先輸入內容與初始間隔，按「儲存 / 更新內容」。";
+        timerDisplay.textContent = "--:--";
+        nextTimeInfo.textContent = "";
+        recallPrompt.classList.add("hidden");
+        contentReview.classList.add("hidden");
+        startTimerBtn.disabled = false;
+        stopTimerBtn.disabled = true;
+        updateHistoryInfo(null);
+        return;
+      }
+
+      contentInput.value = item.content || "";
+      contentDisplay.textContent = item.content || "";
+
+      if (item.nextTime && item.nextTime > Date.now()) {
+        const remainingMs = item.nextTime - Date.now();
+        statusText.textContent =
+          "已排程下一次回想。請等待計時結束，再進行提取訓練。";
+        nextTimeInfo.textContent =
+          "距離下一次回想還有：約 " + formatDuration(remainingMs);
+        startCountdownUntil(item.nextTime);
+        recallPrompt.classList.add("hidden");
+        contentReview.classList.add("hidden");
+        startTimerBtn.disabled = true; // 已經在跑計時
+        stopTimerBtn.disabled = false;
+      } else if (item.nextTime && item.nextTime <= Date.now()) {
+        // 已經到了回想時間
+        statusText.textContent = "到了回想時間！請先在腦中回想內容。";
+        timerDisplay.textContent = "00:00";
+        nextTimeInfo.textContent = "";
+        recallPrompt.classList.remove("hidden");
+        contentReview.classList.add("hidden");
+        startTimerBtn.disabled = true;
+        stopTimerBtn.disabled = true;
+      } else {
+        // 尚未排程
+        statusText.textContent = "尚未開始計時，按「開始計時」啟動初始間隔。";
+        timerDisplay.textContent = "--:--";
+        nextTimeInfo.textContent = "";
+        recallPrompt.classList.add("hidden");
+        contentReview.classList.add("hidden");
+        startTimerBtn.disabled = false;
+        stopTimerBtn.disabled = true;
+      }
+
+      updateHistoryInfo(item);
+    }
+
+    // --- 事件綁定 ---
+
+    saveContentBtn.addEventListener("click", () => {
+      const content = contentInput.value.trim();
+      if (!content) {
+        alert("請先輸入要記的內容。");
+        return;
+      }
+      const initialMinutes = parseInt(initialMinutesInput.value, 10);
+      const now = Date.now();
+
+      let item = loadItem() || {};
+      item.content = content;
+
+      if (!item.level) {
+        item.level = 1;
+      }
+      if (!item.nextTime) {
+        item.nextTime = null;
+      }
+      item.lastResult = item.lastResult || null;
+      item.lastReviewedAt = item.lastReviewedAt || null;
+
+      saveItem(item);
+      saveStatus.textContent = "已儲存內容。初始間隔為 " + initialMinutes + " 分鐘。";
+      setTimeout(() => (saveStatus.textContent = ""), 3000);
+    });
+
+    startTimerBtn.addEventListener("click", () => {
+      const content = contentInput.value.trim();
+      if (!content) {
+        alert("請先輸入要記的內容，並按「儲存 / 更新內容」。");
+        return;
+      }
+      let item = currentItem || {};
+      const initialMinutes = parseInt(initialMinutesInput.value, 10) || 5;
+      const now = Date.now();
+
+      // 初次啟動：用自訂初始間隔（分鐘）
+      item.content = content;
+      item.level = item.level || 1;
+      item.nextTime = now + initialMinutes * 60 * 1000;
+      item.lastReviewedAt = now;
+      item.lastResult = null;
+
+      saveItem(item);
+      startCountdownUntil(item.nextTime);
+      statusText.textContent = "已開始計時，請等待下一次回想時間。";
+      nextTimeInfo.textContent =
+        "距離下一次回想還有：約 " + formatDuration(item.nextTime - now);
+      startTimerBtn.disabled = true;
+      stopTimerBtn.disabled = false;
+    });
+
+    stopTimerBtn.addEventListener("click", () => {
+      clearTimer();
+      timerDisplay.textContent = "--:--";
+      statusText.textContent = "計時已停止。可再次按「開始計時」重新排程。";
+      nextTimeInfo.textContent = "";
+      recallPrompt.classList.add("hidden");
+      contentReview.classList.add("hidden");
+      startTimerBtn.disabled = false;
+      stopTimerBtn.disabled = true;
+
+      if (currentItem) {
+        currentItem.nextTime = null;
+        saveItem(currentItem);
+      }
+    });
+
+    showContentBtn.addEventListener("click", () => {
+      if (!currentItem) return;
+      contentDisplay.textContent = currentItem.content || "";
+      contentReview.classList.remove("hidden");
+    });
+
+    successBtn.addEventListener("click", () => {
+      if (!currentItem) return;
+      let level = currentItem.level || 1;
+      level = Math.min(level + 1, INTERVALS_MINUTES.length - 1);
+      const now = Date.now();
+      const intervalMinutes = INTERVALS_MINUTES[level];
+      currentItem.level = level;
+      currentItem.lastResult = "success";
+      currentItem.lastReviewedAt = now;
+      currentItem.nextTime = now + intervalMinutes * 60 * 1000;
+
+      saveItem(currentItem);
+      recallPrompt.classList.add("hidden");
+      contentReview.classList.add("hidden");
+      statusText.textContent =
+        "評為「成功記起」。已排程下一次回想。";
+      const remaining = currentItem.nextTime - now;
+      nextTimeInfo.textContent =
+        "下次間隔約為：" +
+        Math.round(intervalMinutes) +
+        " 分鐘（距離現在約 " +
+        formatDuration(remaining) +
+        "）";
+      startCountdownUntil(currentItem.nextTime);
+      startTimerBtn.disabled = true;
+      stopTimerBtn.disabled = false;
+    });
+
+    failBtn.addEventListener("click", () => {
+      if (!currentItem) return;
+      let level = currentItem.level || 1;
+      level = Math.max(level - 1, 1);
+      const now = Date.now();
+      const intervalMinutes = INTERVALS_MINUTES[level];
+      currentItem.level = level;
+      currentItem.lastResult = "fail";
+      currentItem.lastReviewedAt = now;
+      currentItem.nextTime = now + intervalMinutes * 60 * 1000;
+
+      saveItem(currentItem);
+      recallPrompt.classList.add("hidden");
+      contentReview.classList.add("hidden");
+      statusText.textContent =
+        "評為「沒有或大部分沒記起」。已縮短間隔並排程下一次回想。";
+      const remaining = currentItem.nextTime - now;
+      nextTimeInfo.textContent =
+        "下次間隔約為：" +
+        Math.round(intervalMinutes) +
+        " 分鐘（距離現在約 " +
+        formatDuration(remaining) +
+        "）";
+      startCountdownUntil(currentItem.nextTime);
+      startTimerBtn.disabled = true;
+      stopTimerBtn.disabled = false;
+    });
+
+    // 初始化
+    window.addEventListener("load", () => {
+      const item = loadItem();
+      if (item) {
+        currentItem = item;
+      }
+      updateUIFromItem();
+    });
+  </script>
+</body>
+</html>
